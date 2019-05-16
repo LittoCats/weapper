@@ -42,9 +42,10 @@ export default class Application extends Module {
   }
 
   async export() {
-   console.log('app export'); 
+    await exportConfig.call(this);
+    await exportScript.call(this);
+    await exportStyle.call(this);
   }
-
 }
 
 const ExtMap = Application.ExtMap = {
@@ -91,24 +92,40 @@ async function loadStyle() {
   await style.resolve();
 }
 
-// 实现 Module 的默认导出功能
-Module.prototype.export = async function () {
-  const PROJ_ROOT = path.dirname(program.entry);
+async function exportConfig() {
+
+}
+
+async function exportScript() {
+  const scripts = Object.values(this.$graph).filter((_)=> _ instanceof Script);
+  const dist_root = program.outputDir;
   
-  let DIST_ROOT = program.outputDir;
-  let source = path.relative(PROJ_ROOT, this.source);
+  // TODO: 如果支持分包，需要过滤分包内容
 
-  const regexp = /^\..*?node_modules\/+/;
-  if (regexp.test(source)) {
-    DIST_ROOT = path.resolve(DIST_ROOT, 'miniprogram_npm');
-    source = source.replace(regexp, '');
+  if (program.minify) {
+    // 1. 合并所有 script , 扫描 require 方法，替换为 __WEAPPER_REQUIRE__($id)
+    // 2. 输出到 $DIST_ROOT/scripts.js
+    // 3. 输出 Application Page Component 脚本
+    
+    const combined = Script.concat(scripts);
+    const dist = path.resolve(dist_root, 'scripts.js');
+    await fs.mkdirp(path.dirname(dist));
+    await fs.writeFile(dist, await combined.generate());
+
+    for (page of this.pages) {
+      await page.export();
+    }
+
+  } else {
+    // 1. 扫描 require 方法，替换为 __WEAPPER_REQUIRE__($relative_to_current_dirname)
+    // 2. 输出到 $DIST
+    for (let script of scripts) {
+
+    }
   }
+  
+}
 
-  const dist = path.resolve(DIST_ROOT, source).replace(/(?=.)[a-z]+$/i, (ext)=> {
-    // 影射文件名后缀
-    return ExtMap[ext.toLowerCase()] || ext;
-  });
+async function exportStyle() {
 
-  await fs.mkdirp(path.dirname(dist));
-  await fs.writeFile(dist, this.content);
 }

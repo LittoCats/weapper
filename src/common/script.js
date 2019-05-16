@@ -25,9 +25,9 @@ import program from 'commander';
 
 import * as babel from '@babel/core';
 
-import PluginEnv from '../plugin/env';
-import PluginGlobal from '../plugin/global';
-import PluginSelect from '../plugin/select';
+import PluginEnv from '../plugin/babel/env';
+import PluginGlobal from '../plugin/babel/global';
+import PluginSelect from '../plugin/babel/select';
 
 import Module from './module';
 
@@ -44,6 +44,7 @@ export default class Script extends Module {
     this.$resolved = true;
     const depens = await new Promise(compile.bind(this));
     for (let depen of depens) {
+      this.$depens.push(depen);
       await depen.resolve();
     }
   }
@@ -62,8 +63,8 @@ function compile(onSuccess, onError) {
 
   const options = {
     plugins: [PluginEnv, PluginGlobal, DepensScanner],
-    ast: program.minify,
-    code: !program.minify
+    ast: true,
+    code: false
   };
 
   if (/^\./.test(path.relative(PROJ_DIR, this.$source))) {
@@ -76,13 +77,7 @@ function compile(onSuccess, onError) {
     if (error) return onError(error);
     
     try {
-      if (program.minify) {
-        this.ast = result.ast;
-      } else {
-        this.source = this.$source;
-        this.content = result.code;
-        await this.export();
-      }  
+      this.ast = result.ast; 
       onSuccess(DepensScanner.dependencies());
     } catch (error) {
       onError(error);
@@ -90,6 +85,9 @@ function compile(onSuccess, onError) {
   });
 }
 
+/**
+ *
+ */
 function PluginDepensScanner(__dirname, __graph) {
   const depens = [];
   plugin.dependencies = function () {
@@ -107,6 +105,7 @@ function PluginDepensScanner(__dirname, __graph) {
   }
 
   function CallExpression(path) {
+
     const node = path.node;
     if (node.callee.name != 'require') return;
     
@@ -118,15 +117,16 @@ function PluginDepensScanner(__dirname, __graph) {
     const value = argument.value;
     const source = resolveModulePath(value, __dirname)
 
+    console.log(source)
     if (!source) throw path.buildCodeFrameError(`Module not found: ${value}`);
 
+    if (!/\.js$/i.test(source)) {
+      throw path.buildCodeFrameError(`Unsupported module: ${value}`)
+    }
     const script = Script.create(source, __graph);
     depens.push(script);
 
-    if (program.minify) {
-      argument.value = script.$id;
-      node.callee.name = '__WEAPPER_REQUIRE__';
-    }
+    argument.value = source;
   }
 }
 

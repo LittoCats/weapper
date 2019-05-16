@@ -1,2 +1,2 @@
 <view>MiniProgram template</view>
-<view class="footer">® Weapper by 程巍巍</view>
+<view class="footer">® Weapper by {{name}}</view>
