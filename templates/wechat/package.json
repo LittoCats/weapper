@@ -1,0 +1,23 @@
+{
+  "name": "wechat",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "weapper build -w src/app.json"
+  },
+  "devDependencies": {
+    "weapper": "latest",
+    "colors": "^1.3.3",
+    "commander": "^2.20.0",
+    "fs-extra": "^8.0.0",
+    "yaml": "^1.5.1"
+  },
+  "browserslist": [
+    "ios >= 8",
+    "android >= 4.2"
+  ],
+  "miniprogram": {
+    "appid": {
+      "development": ""
+    }
+  }
+}

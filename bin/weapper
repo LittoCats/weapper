@@ -1,0 +1,5 @@
+#!/usr/bin/env sh 
+
+PROJ_DIR=`dirname $(dirname $(realpath $0))`
+VERSION=`cat "$PROJ_DIR/package.json" | jq -r ".version"`
+WEAPPER_VERSION="$VERSION" node "$PROJ_DIR/build/weapper.js" $*
