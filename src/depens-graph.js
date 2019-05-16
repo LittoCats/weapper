@@ -19,5 +19,28 @@
  * 
  */
 
-export default class DepensGraph {
+const cache = new Map();
+class DepensGraph {
+
+  has(source) {
+    return cache.has(source);
+  }
+  
+  add(module) {
+    cache.set(module.$source, module);
+  }
+
+  get(source) {
+    return cache.get(source)
+  }
+
+  remove(module) {
+    if (typeof module === 'string') {
+      cache.delete(module);
+    } else {
+      cache.delete(module.$source)
+    }
+  }
 }
+
+export default new DepensGraph();

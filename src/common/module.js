@@ -22,26 +22,45 @@
 import fs from 'fs-extra';
 import crypto from 'crypto';
 
+import depensGraph from '../depens-graph';
+
 let uid = 0;
 
+
+type Application = {
+  resolveDist: (absoluteSourcePath: string) => string,
+  write: (absoluteSourcePath: string, data: string | Buffer)=> Promise
+};
+
+let __MODULE_INITIAL__ = false;
+
 export default class Module {
-  constructor(source, graph) {
+
+  $id: number = uid++;
+  $source: string;
+
+  /**
+   * 
+   */
+  constructor(source: string, application: Application) {
+
+    if (source && !__MODULE_INITIAL__) {
+      throw new Error(`Create instance with new operator is unsafe, please use ${this.constructor.name.yellow}.${'create'.green}(absoluteSourcePath, application)`);
+    }
+
     this.$id = uid++;
     this.$source = source;
-    this.$graph = graph;
-    this.$depens = [];
+    this.$application = application;
 
-    if (graph[source]) throw new Error(
-      `Recreate module ${this.constructor.name} with source: ${source}`.red
-      + `This maybe an internal parser error, please report to`
+    if (depensGraph.has(source)) throw new Error(
+      `Recreate module ${this.constructor.name} with source: ${source}\n`.red
+      + `  This maybe an internal parser error, please report to `
       + `littocats@gmail.com`.green
     );
-
-    graph[source] = this;
   }
 
-  resolve() {
-    throw new Error(`Abstract method resolve must be implemented by class `+
+  import() {
+    throw new Error(`Abstract method import must be implemented by class `+
       this.constructor.name + ` .`);
   }
 
@@ -51,9 +70,16 @@ export default class Module {
   }
 }
 
-Module.create = function (source, graph) {
-  if (graph[source]) return graph[source];
-  return new (this)(source, graph);
+Module.create = function (absoluteSourcePath: string, application: Application) {
+  if (depensGraph.has(absoluteSourcePath)) return depensGraph.get(absoluteSourcePath);
+  
+  __MODULE_INITIAL__ = true;
+  module = new (this)(absoluteSourcePath, application);
+  __MODULE_INITIAL__ = false;
+  
+  depensGraph.add(module);
+  
+  return module;
 }
 
 Module.ensureExtension = function(_, ext) {

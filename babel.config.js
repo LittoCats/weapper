@@ -2,6 +2,7 @@ module.exports = function(api) {
   api.cache(true);
 
   const presets = [
+    '@babel/preset-flow',
     [
       '@babel/preset-env', {
         targets: 'node >= 8'
@@ -9,6 +10,7 @@ module.exports = function(api) {
     ]
   ];
   const plugins = [
+    '@babel/plugin-proposal-class-properties',
     [
       '@babel/plugin-transform-runtime', {
         "absoluteRuntime": false,

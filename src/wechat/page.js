@@ -21,6 +21,7 @@
 
 import fs from 'fs-extra';
 import path from 'path';
+import program from 'commander';
 
 import Module from '../common/module';
 
@@ -30,7 +31,9 @@ import Template from '../common/template';
 
 export default class Page extends Module {
 
-  async resolve() {
+  pages: Page = [];
+
+  async import() {
     await loadConfig.call(this);
     await loadScript.call(this);
     await loadStyle.call(this);
@@ -38,7 +41,18 @@ export default class Page extends Module {
   }
 
   async export() {
+    await exportConfig.call(this);
+    await exportScript.call(this);
+    await exportStyle.call(this);
+    await exportTemplate.call(this);
+  }
 
+  // 相对 SRC_ROOT 的相对路径，例如 /pages/home/index
+  path(): string {
+    const SRC_ROOT = path.dirname(program.entry);
+    return path.relative(SRC_ROOT, this.$source)
+      .replace(/^\/*/, '/')
+      .replace(/\.[a-z]+$/i, '');
   }
 }
 
@@ -53,25 +67,33 @@ async function loadConfig() {
 
 async function loadScript() {
   const _ = Module.ensureExtension(this.$source, '.js');
-  const script = Script.create(_, this.$graph);
-  this.$depens.push(script);
-
-  await script.resolve();
+  this.script = Script.create(_, this.$application);
+  await this.script.import();
 }
 
 async function loadStyle() {
   const source = Module.ensureSource(this.$source, '.wxss', '.css', '.scss', '.sass');
   if (!source) throw new Error(`No style found for page: ${this.$source}`);
 
-  const style = Style.create(source, this.$graph);
-  this.$depens.push(style);
-  await style.resolve();
+  this.style = Style.create(source, this.$application);
+  // await this.style.import();
 }
 
 async function loadTemplate() {
   const source = Module.ensureSource(this.$source, '.wxml', '.xml');
-  const template = Template.create(source, this.$graph);
-  
-  this.$depens.push(template);
-  await template.resolve();
+  this.template = Template.create(source, this.$application);
+  // await this.template.import();
+}
+
+async function exportConfig() {
+
+}
+async function exportScript() {
+  await this.script.export();
+}
+async function exportStyle() {
+
+}
+async function exportTemplate() {
+
 }

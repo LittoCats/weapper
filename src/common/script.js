@@ -24,6 +24,7 @@ import fs from 'fs-extra';
 import program from 'commander';
 
 import * as babel from '@babel/core';
+import generate from '@babel/generator';
 
 import PluginEnv from '../plugin/babel/env';
 import PluginGlobal from '../plugin/babel/global';
@@ -32,6 +33,15 @@ import PluginSelect from '../plugin/babel/select';
 import Module from './module';
 
 export default class Script extends Module {
+
+  // 源码发生改变时，变为 true
+  $dirty: boolean = true;
+
+  // 需要重新输出时，变为 true
+  $sync: boolean = true;
+
+  dependencies: Set<Module> = new Set();
+
   constructor(_, graph) {
     super(_, graph);
   }
@@ -39,13 +49,33 @@ export default class Script extends Module {
   /**
    * 递归编译脚 es 代码
    */
-  async resolve() {
-    if (this.$resolved) return;
-    this.$resolved = true;
+  async import() {
+    if (!this.$dirty) return;
+    this.$dirty = false;
+    this.$sync = true;
+
     const depens = await new Promise(compile.bind(this));
     for (let depen of depens) {
-      this.$depens.push(depen);
-      await depen.resolve();
+      this.dependencies.add(depen);
+
+      await depen.import();
+    }
+  }
+
+  async export() {
+    if (!this.$sync) return;
+    this.$sync = false;
+
+    const ast = await new Promise(transformRequire.bind(this));
+    const result = generate(ast, {}, '');
+    
+    const dist = this.$application.resolveDist(this.$source);
+
+    await fs.mkdirp(path.dirname(dist));
+    await fs.writeFile(dist, result.code);
+
+    for (let dependency of this.dependencies) {
+      await dependency.export();
     }
   }
 }
@@ -59,7 +89,7 @@ function compile(onSuccess, onError) {
 
   const PROJ_DIR = path.dirname(program.entry);
 
-  const DepensScanner = PluginDepensScanner(path.dirname(this.$source), this.$graph);
+  const DepensScanner = PluginDepensScanner(path.dirname(this.$source), this.$application);
 
   const options = {
     plugins: [PluginEnv, PluginGlobal, DepensScanner],
@@ -88,7 +118,7 @@ function compile(onSuccess, onError) {
 /**
  *
  */
-function PluginDepensScanner(__dirname, __graph) {
+function PluginDepensScanner(__dirname, application) {
   const depens = [];
   plugin.dependencies = function () {
     return depens;
@@ -117,13 +147,12 @@ function PluginDepensScanner(__dirname, __graph) {
     const value = argument.value;
     const source = resolveModulePath(value, __dirname)
 
-    console.log(source)
     if (!source) throw path.buildCodeFrameError(`Module not found: ${value}`);
 
     if (!/\.js$/i.test(source)) {
       throw path.buildCodeFrameError(`Unsupported module: ${value}`)
     }
-    const script = Script.create(source, __graph);
+    const script = Script.create(source, application);
     depens.push(script);
 
     argument.value = source;
@@ -141,5 +170,39 @@ function resolveModulePath(name, __dirname) {
     return require.resolve(file);
   } catch (error) {
     return null;
+  }
+}
+
+function transformRequire(onSuccess, onError) {
+  const module = this;
+  const application = this.$application;
+
+  babel.transformFromAst(this.ast, '', {
+    plugins: [RequireTransformer],
+    ast: true, code: false, 
+    configFile: path.resolve(__dirname, 'empty.babel.config.js')
+  }, (error, result)=> {
+    if (error) return onError(error);
+
+    onSuccess(result.ast);
+  });
+
+  function RequireTransformer() {
+    return {
+      visitor: { CallExpression }
+    }
+  }
+
+  function CallExpression($path) {
+    const node = $path.node;
+    if (node.callee.name != 'require') return;
+
+    let relative = path.relative(
+      path.dirname(application.resolveDist(module.$source)),
+      application.resolveDist(node.arguments[0].value)
+    );
+
+    if (!/^\./.test(relative)) relative = `./${relative}`;
+    node.arguments[0].value = relative;
   }
 }

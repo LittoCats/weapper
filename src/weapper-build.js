@@ -68,30 +68,22 @@ program.env = __ENV__;
  *                                                                           *
  *****************************************************************************/
 
-import DepensGraph from './depens-graph';
+import depensGraph from './depens-graph';
 import Application from './wechat/application';
 
 async function main() {
-  
-  const graph = new DepensGraph();
-  const app = new Application(program.entry, graph);
 
   try {
-    await app.resolve();
+    const app = Application.create(program.entry, null);
+    await app.import();
     await app.export();  
   } catch (error) {
     console.log(error)
   }
 
   if (program.watch) {
-    watch(graph);
+    depensGraph.watch();
   }
 }
-
-
-function watch(graph) {
-  console.log('watch', graph);
-}
-
 
 main();
