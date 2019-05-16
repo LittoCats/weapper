@@ -22,16 +22,45 @@
 import fs from 'fs-extra';
 import path from 'path';
 import program from 'commander';
+import Color from 'color';
 
 import Module from '../common/module';
 
 import Script from '../common/script';
 import Style from '../common/style';
 import Template from '../common/template';
+import Component from './component';
 
 export default class Page extends Module {
 
-  pages: Page = [];
+  // 导航栏背景颜色
+  navigationBarBackgroundColor: Color = new Color('white');  
+  // 导航栏标题颜色
+  navigationBarTextStyle: 'black' | 'white' = 'black';
+  // 导航栏标题文字内容   
+  navigationBarTitleText:  string;          
+  // 导航栏样式，仅支持以下值：default 默认样式 custom 自定义导航栏，只保留右上角胶囊按钮  微信客户端 7.0.0  
+  navigationStyle: 'default' | 'custom' = 'default';
+  // 窗口的背景色
+  backgroundColor: Color = new Color('white');
+  // 下拉 loading 的样式
+  backgroundTextStyle: 'dark' | 'light' = 'dark';
+  // 顶部窗口的背景色，仅 iOS 支持 微信客户端 6.5.16  
+  backgroundColorTop: Color = new Color('white');
+  // 底部窗口的背景色，仅 iOS 支持 微信客户端 6.5.16
+  backgroundColorBottom: Color = new Color('white');            
+  // 是否开启当前页面下拉刷新。详见 Page.onPullDownRefresh   
+  enablePullDownRefresh: boolean = false;
+  // 页面上拉触底事件触发时距页面底部距离，单位为px。详见 Page.onReachBottom
+  onReachBottomDistance: number = 50;
+  // 屏幕旋转设置，支持 auto / portrait / landscape
+  pageOrientation: 'auto' | 'portrait' | 'landscape' = 'portrait';
+  // 设置为 true 则页面整体不能上下滚动。只在页面配置中有效，无法在 app.json 中设置    
+  disableScroll: boolean = false;
+  // 禁止页面右滑手势返回  微信客户端 7.0.0  
+  disableSwipeBack:  boolean = false;               
+  // 否 页面自定义组件配置 1.6.3
+  usingComponents: Object<string, Component>;
 
   async import() {
     await loadConfig.call(this);
@@ -42,23 +71,38 @@ export default class Page extends Module {
 
   async export() {
     await exportConfig.call(this);
-    await exportScript.call(this);
+    if (!program.minify) await exportScript.call(this);
     await exportStyle.call(this);
     await exportTemplate.call(this);
   }
 
-  // 相对 SRC_ROOT 的相对路径，例如 /pages/home/index
-  path(): string {
-    const SRC_ROOT = path.dirname(program.entry);
-    return path.relative(SRC_ROOT, this.$source)
-      .replace(/^\/*/, '/')
-      .replace(/\.[a-z]+$/i, '');
+  // 所有依赖的脚本，递规 usingComponents pages
+  get scripts() {
+    const scripts = new Set();
+    
+    for (let [_, component] of Object.entries(this.usingComponents || {})) {
+      for (let subscript of component.scripts) {
+        scripts.add(subscript);
+      }
+    }
+
+    function walk(script) {
+      scripts.add(script);
+      for (let subscript of script.dependencies || []) {
+        walk(subscript);
+      }
+    }
+    walk(this.script);
+    return scripts;
   }
 }
 
 async function loadConfig() {
   const content = await fs.readFile(this.$source, 'utf-8');
-  const config = (/\.yaml$/i.test(this.$source) ? YAML : JSON).parse(content);
+  const {
+    usingComponents,
+    ...config
+  } = (/\.yaml$/i.test(this.$source) ? YAML : JSON).parse(content);
 
   Object.assign(this, config);
 
@@ -86,7 +130,28 @@ async function loadTemplate() {
 }
 
 async function exportConfig() {
+  const exports = {
+    navigationBarBackgroundColor: this.navigationBarBackgroundColor,
+    navigationBarTextStyle: this.navigationBarTextStyle,
+    navigationBarTitleText: this.navigationBarTitleText,
+    navigationStyle: this.navigationStyle,
+    backgroundColor: this.backgroundColor,
+    backgroundTextStyle: this.backgroundTextStyle,
+    backgroundColorTop: this.backgroundColorTop,
+    backgroundColorBottom: this.backgroundColorBottom,
+    enablePullDownRefresh: this.enablePullDownRefresh,
+    onReachBottomDistance: this.onReachBottomDistance,
+    pageOrientation: this.pageOrientation,
+    disableScroll: this.disableScroll,
+    disableSwipeBack: this.disableSwipeBack,
+  };
 
+  // TODO: export components
+
+  // output
+  const dist = this.$application.resolveDistPath(this.$source);
+  await fs.mkdirp(path.dirname(dist));
+  await fs.writeFile(dist, JSON.stringify(exports, null, program.minify ? 0 : 2));
 }
 async function exportScript() {
   await this.script.export();

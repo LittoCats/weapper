@@ -22,16 +22,17 @@ import fs from 'fs-extra';
 import path from 'path';
 
 import program from 'commander';
+import * as babel from '@babel/core';
 
 import Module from '../common/module';
 import Script from '../common/script';
 import Style from '../common/style';
 
 import SubPackage from './subpackage';
+import Component from './component';
+import Page from './page';
 import Window from './window';
 import Tabbar from './tabbar';
-import Page from './page';
-
 
 export default class Application extends Module {
 
@@ -71,7 +72,7 @@ export default class Application extends Module {
   navigateToMiniProgramAppIdList: ?Array<string>;
 
   // 全局自定义组件配置
-  usingComponents: ?Object;
+  usingComponents: ?Object<string, Component>;
 
   // 小程序接口权限相关设置  
   // 微信客户端 7.0.0
@@ -91,7 +92,7 @@ export default class Application extends Module {
   }
 
   // 源文件在编译结果目录中的绝对路径
-  resolveDist(absoluteSourcePath: string) {
+  resolveDistPath(absoluteSourcePath: string) {
     const src = path.dirname(program.entry);
     const dist = program.outputDir;
     const relative = path.relative(src, absoluteSourcePath)
@@ -100,8 +101,27 @@ export default class Application extends Module {
     return path.resolve(dist, relative);
   }
 
-  async write(absolutePath: string, data: string | Buffer) {
-
+  // 所有依赖的脚本，递规 usingComponents pages
+  get scripts() {
+    const scripts = new Set();
+    for (let page of this.pages) {
+      for (let subscript of page.scripts) {
+        scripts.add(subscript);
+      }
+    }
+    for (let [_, component] of Object.entries(this.usingComponents || {})) {
+      for (let subscript of component.scripts) {
+        scripts.add(subscript);
+      }
+    }
+    function walk(script) {
+      scripts.add(script);
+      for (let subscript of script.dependencies || []) {
+        walk(subscript);
+      }
+    }
+    walk(this.script);
+    return scripts
   }
 }
 
@@ -169,11 +189,12 @@ async function importStyle() {
 async function exportConfig() {
   const SRC_ROOT = path.dirname(this.$source);
 
-  const exports = {};
+  const exports = {
+    pages: []
+  };
   exports.window = await this.window.export();
 
   // pages 只需要保存相对路径
-  exports.pages = [];
   for (let page of this.pages) {
     const pagePath = path.relative(SRC_ROOT, page.$source)
       .replace(/\.[a-z]+$/, '');
@@ -221,10 +242,9 @@ async function exportConfig() {
     exports.permission = this.permission;
   }
 
-  const DIST_ROOT = program.outputDir;
-  const DIST = path.resolve(DIST_ROOT, 'app.json');
-  await fs.mkdirp(DIST_ROOT);
-  await fs.writeFile(DIST, JSON.stringify(exports, null, program.minify ? 0 : 2));
+  const dist = this.resolveDistPath(this.$source);
+  await fs.mkdirp(path.dirname(dist));
+  await fs.writeFile(dist, JSON.stringify(exports, null, program.minify ? 0 : 2));
 
   for (let page of this.pages) {
     await page.export();
@@ -238,17 +258,15 @@ async function exportScript() {
     // 2. 输出到 $DIST_ROOT/scripts.js
     // 3. 输出 Application Page Component 脚本
     
-    // const combined = Script.concat(scripts);
-    // const dist = path.resolve(dist_root, 'scripts.js');
-    // await fs.mkdirp(path.dirname(dist));
-    // await fs.writeFile(dist, await combined.generate());
-
-
+    const scripts = this.scripts;
+    const code = await Script.contact(scripts);
+    await fs.writeFile(
+      path.resolve(program.outputDir, 'scripts.js'),
+      code
+    );
   } else {
     await this.script.export();
-
   }
-  
 }
 
 async function exportStyle() {

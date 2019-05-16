@@ -28,8 +28,7 @@ let uid = 0;
 
 
 type Application = {
-  resolveDist: (absoluteSourcePath: string) => string,
-  write: (absoluteSourcePath: string, data: string | Buffer)=> Promise
+  resolveDistPath: (absoluteSourcePath: string) => string
 };
 
 let __MODULE_INITIAL__ = false;

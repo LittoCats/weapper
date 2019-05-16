@@ -25,7 +25,9 @@ import program from 'commander';
 
 import * as babel from '@babel/core';
 import generate from '@babel/generator';
+import * as bt from 'babel-types';
 
+import depensGraph from '../depens-graph';
 import PluginEnv from '../plugin/babel/env';
 import PluginGlobal from '../plugin/babel/global';
 import PluginSelect from '../plugin/babel/select';
@@ -69,7 +71,7 @@ export default class Script extends Module {
     const ast = await new Promise(transformRequire.bind(this));
     const result = generate(ast, {}, '');
     
-    const dist = this.$application.resolveDist(this.$source);
+    const dist = this.$application.resolveDistPath(this.$source);
 
     await fs.mkdirp(path.dirname(dist));
     await fs.writeFile(dist, result.code);
@@ -77,6 +79,13 @@ export default class Script extends Module {
     for (let dependency of this.dependencies) {
       await dependency.export();
     }
+  }
+
+  // 合并 scripts
+  // 替换 require(path) 为 __weapper_module__($id)
+  // 输出压缩代码
+  static async contact(scripts: Array<Script>): string {
+    return await contact(scripts);
   }
 }
 
@@ -198,11 +207,81 @@ function transformRequire(onSuccess, onError) {
     if (node.callee.name != 'require') return;
 
     let relative = path.relative(
-      path.dirname(application.resolveDist(module.$source)),
-      application.resolveDist(node.arguments[0].value)
+      path.dirname(application.resolveDistPath(module.$source)),
+      application.resolveDistPath(node.arguments[0].value)
     );
 
     if (!/^\./.test(relative)) relative = `./${relative}`;
     node.arguments[0].value = relative;
   }
 }
+
+async function contact(scripts) {
+
+  const file =
+    babel.parseSync(`
+      var __weaper_modules__ = {};
+      function define(id, factory) {
+        __weaper_modules__[id] = {factory: factory};
+      }
+      function __weapper_require__(id) {
+        if (!__weaper_modules__[id]) throw new Error("Module not found with id: " + id);
+        const module = __weaper_modules__[id];
+        if (module.exports) return module.exports;
+        module.exports = {};
+        module.factory(module, module.exports);
+        delete module.factory;
+        return module.exports;
+      }
+      module.exports = __weapper_require__;
+      `
+    );
+
+  for (let script of scripts) {
+    script.comments = [];
+    file.program.body.push(bt.expressionStatement(bt.callExpression(
+      bt.identifier('define'),[
+      bt.numericLiteral(script.$id),
+      bt.functionExpression(
+        bt.identifier(''),
+        [bt.identifier('module'), bt.identifier('exports')],
+        bt.blockStatement(script.ast.program.body)
+      )
+    ])));
+  }
+  file.comments = [];
+  const result = await new Promise(minify);
+  return result.code;
+
+  function minify(onSuccess, onError) {
+    babel.transformFromAst(file, '', {
+      presets:['babel-preset-minify'],
+      plugins: [RequireTransformer],
+      ast: false, code: true, 
+      configFile: path.resolve(__dirname, 'empty.babel.config.js')
+    }, (error, result)=> {
+      if (error) return onError(error);
+
+      onSuccess(result);
+    });
+  }
+
+  function RequireTransformer() {
+    return {
+      visitor: { CallExpression }
+    }
+  }
+
+  function CallExpression($path) {
+    const node = $path.node;
+    if (node.callee.name != 'require') return;
+
+    const source = node.arguments[0].value;
+    const script = depensGraph.get(source);
+    node.callee.name = '__weapper_require__';
+    node.arguments[0].value = script.$id;
+  }
+
+
+}
+

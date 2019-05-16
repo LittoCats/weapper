@@ -41,6 +41,9 @@ class DepensGraph {
       cache.delete(module.$source)
     }
   }
+
+  watch() {
+  }
 }
 
 export default new DepensGraph();
