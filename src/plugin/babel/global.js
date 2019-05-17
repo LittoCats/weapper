@@ -20,10 +20,35 @@
  */
 
 /**
- * 将 new Function("return this;") 替换为 function(){return this;}
+ * 将 Function("return this;") 替换为 function(){return this;}
  * 因为小程序中，通过第一种方法，无法获得 globalObject
  */
 
+import * as bt from '@babel/types';
+
 export default function () {
-  return {};
+  return {
+    visitor: {
+      CallExpression
+    }
+  };
+
+  function CallExpression(path) {
+    const node = path.node;
+    if (node.callee.name !== 'Function') return;
+    if (node.arguments.length < 1) return;
+    const argument = node.arguments[0];
+    if (/^\s*return\s+this\s*;*$/.test(argument.value)) {
+      // console.log
+      path.replaceWith
+      (bt.functionExpression(
+        bt.identifier(''),
+        [],
+        bt.blockStatement([bt.returnStatement(bt.thisExpression())])
+      ));
+    } else {
+
+      console.warn(path.buildCodeFrameError(`Function is not valid in miniprogram.`));
+    }
+  }
 }

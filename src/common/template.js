@@ -19,9 +19,25 @@
  * 
  */
 
+import fs from 'fs-extra';
+import path from 'path';
+
 import Module from './module';
 
 export default class Template extends Module {
-  async resolve() {
+  async import() {
+    if (!this.$dirty) return;
+    this.$dirty = false;
+    this.$sync = true;
+
+    this.content = await fs.readFile(this.$source);
+  }
+
+  async export() {
+    if (!this.$sync) return;
+    this.$sync = false;
+
+    const dist = this.$application.resolveDistPath(this.$source);
+    await fs.writeFile(dist, this.content);
   }
 }

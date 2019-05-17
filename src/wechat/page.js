@@ -120,25 +120,25 @@ async function loadStyle() {
   if (!source) throw new Error(`No style found for page: ${this.$source}`);
 
   this.style = Style.create(source, this.$application);
-  // await this.style.import();
+  await this.style.import();
 }
 
 async function loadTemplate() {
   const source = Module.ensureSource(this.$source, '.wxml', '.xml');
   this.template = Template.create(source, this.$application);
-  // await this.template.import();
+  await this.template.import();
 }
 
 async function exportConfig() {
   const exports = {
-    navigationBarBackgroundColor: this.navigationBarBackgroundColor,
+    navigationBarBackgroundColor: this.navigationBarBackgroundColor.hex(),
     navigationBarTextStyle: this.navigationBarTextStyle,
     navigationBarTitleText: this.navigationBarTitleText,
     navigationStyle: this.navigationStyle,
-    backgroundColor: this.backgroundColor,
+    backgroundColor: this.backgroundColor.hex(),
     backgroundTextStyle: this.backgroundTextStyle,
-    backgroundColorTop: this.backgroundColorTop,
-    backgroundColorBottom: this.backgroundColorBottom,
+    backgroundColorTop: this.backgroundColorTop.hex(),
+    backgroundColorBottom: this.backgroundColorBottom.hex(),
     enablePullDownRefresh: this.enablePullDownRefresh,
     onReachBottomDistance: this.onReachBottomDistance,
     pageOrientation: this.pageOrientation,
@@ -157,8 +157,8 @@ async function exportScript() {
   await this.script.export();
 }
 async function exportStyle() {
-
+  await this.style.export();
 }
 async function exportTemplate() {
-
+  await this.template.export();
 }

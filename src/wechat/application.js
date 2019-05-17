@@ -96,7 +96,7 @@ export default class Application extends Module {
     const src = path.dirname(program.entry);
     const dist = program.outputDir;
     const relative = path.relative(src, absoluteSourcePath)
-      .replace(/^\.\.\/node_modules/, 'node_modules');
+      .replace(/^\.\.\/node_modules/, 'miniprogram_modules');
 
     return path.resolve(dist, relative);
   }
@@ -183,7 +183,7 @@ async function importStyle() {
 
   const style = Style.create(source, this);
   this.style = style;
-  // await style.import();
+  await style.import();
 }
 
 async function exportConfig() {
@@ -208,9 +208,9 @@ async function exportConfig() {
     exports.subpackages = await this.subpackages.export();
   }
   
-  if (this.networkTimeout !== undefined) {
-    exports.networkTimeout = this.networkTimeout;
-  }
+  // if (this.networkTimeout !== undefined) {
+  //   exports.networkTimeout = this.networkTimeout;
+  // }
   if (this.debug !== undefined) {
     exports.debug = this.debug;
   }
@@ -259,18 +259,40 @@ async function exportScript() {
     // 3. 输出 Application Page Component 脚本
     
     const scripts = this.scripts;
+    const scriptsPath = path.resolve(program.outputDir, 'scripts.js');
     const code = await Script.contact(scripts);
-    await fs.writeFile(
-      path.resolve(program.outputDir, 'scripts.js'),
-      code
-    );
+    await fs.writeFile( scriptsPath, code);
+
+    const alias = new Set();
+    alias.add(this.script);
+    for (let page of this.pages) {
+      alias.add(page.script);
+      for (let component of page.usingComponents || []) {
+        alias.add(component.script);
+      }
+    }
+    for (let component of this.usingComponents || []) {
+      alias.add(component.script);
+    }
+
+    for (let script of alias) {
+      const dist = this.resolveDistPath(script.$source);
+      let relative = path.relative(path.dirname(dist), scriptsPath);
+      if (!/^\./.test(relative)) relative = `./${relative}`;
+
+      await fs.mkdirp(path.dirname(dist));
+      await fs.writeFile(
+        dist,
+        `require("${relative}")(${script.$id});`
+      );
+    }
   } else {
     await this.script.export();
   }
 }
 
 async function exportStyle() {
-
+  await this.style.export();
 }
 
 async function exportPackages() {

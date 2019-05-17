@@ -38,6 +38,12 @@ export default class Module {
   $id: number = uid++;
   $source: string;
 
+  // 源码发生改变时，变为 true
+  $dirty: boolean = true;
+
+  // 需要重新输出时，变为 true
+  $sync: boolean = true;
+  
   /**
    * 
    */

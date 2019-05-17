@@ -27,10 +27,20 @@ import postcss from 'postcss';
 import Module from './module';
 
 export default class Style extends Module {
-  async resolve() {
-    if (this.$resolved) return;
+  async import() {
+    if (!this.$dirty) return;
+    this.$dirty = false;
+    this.$sync = true;
 
-    await new Promise(compileStyle.bind(this));
+    this.content = await fs.readFile(this.$source);
+  }
+
+  async export() {
+    if (!this.$sync) return;
+    this.$sync = false;
+
+    const dist = this.$application.resolveDistPath(this.$source);
+    await fs.writeFile(dist, this.content);
   }
 }
 

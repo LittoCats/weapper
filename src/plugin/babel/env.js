@@ -19,6 +19,24 @@
  * 
  */
 
-export default function () {
-  return {};
+import * as bt from '@babel/types';
+
+export default function (babel) {
+  return {
+    visitor: {
+      MemberExpression
+    }
+  };
+
+  function MemberExpression(path) {
+    let node = path.node;
+    if (node.property.name != 'NODE_ENV') return;
+    
+    node = node.object;
+    if (!bt.isMemberExpression(node)) return;
+    if (node.property.name != 'env') return;
+    if (node.object.name != 'process') return;
+
+    path.replaceWith(bt.stringLiteral(babel.getEnv()));
+  }
 }

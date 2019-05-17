@@ -19,6 +19,52 @@
  * 
  */
 
-export default function () {
-  return {};
+import * as bt from '@babel/types';
+
+export default function (babel) {
+  const env = babel.getEnv();
+
+  return {
+    visitor: {
+      CallExpression
+    }
+  };
+
+  function CallExpression(path) {
+    if (path.node.callee.name !== 'select') return;
+    if (path.node.arguments.length !== 1) return;
+    if (!bt.isObjectExpression(path.node.arguments[0])) return;
+
+    // 如果 select 不是 global 标识符
+    // 说明在当前作用域有新定义
+    // 不再作为环境参数选择标识符
+    if (path.scope.globals.select === undefined) return;
+    
+    const properties = path.node.arguments[0].properties;
+    let value;
+    if (has(env)) {
+      value = select(env);
+    } else if (env === 'production') {
+      throw path.buildCodeFrameError(`No selectable property found for env: ${env}`);
+    } else if (has('development')){
+      value = select('development');
+    } else {
+      throw path.buildCodeFrameError(`No selectable property found for env: ${env}`);
+    }
+
+    path.replaceWith(value);
+
+    function has(env) {
+      for (var i = properties.length - 1; i >= 0; i--) {
+        if (properties[i].key.name === env) return true
+      }
+      return false;
+    }
+
+    function select(env) {
+      for (var i = properties.length - 1; i >= 0; i--) {
+        if (properties[i].key.name === env) return properties[i].value;
+      }
+    }
+  }
 }

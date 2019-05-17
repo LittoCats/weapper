@@ -25,7 +25,7 @@ import program from 'commander';
 
 import * as babel from '@babel/core';
 import generate from '@babel/generator';
-import * as bt from 'babel-types';
+import * as bt from '@babel/types';
 
 import depensGraph from '../depens-graph';
 import PluginEnv from '../plugin/babel/env';
@@ -35,12 +35,6 @@ import PluginSelect from '../plugin/babel/select';
 import Module from './module';
 
 export default class Script extends Module {
-
-  // 源码发生改变时，变为 true
-  $dirty: boolean = true;
-
-  // 需要重新输出时，变为 true
-  $sync: boolean = true;
 
   dependencies: Set<Module> = new Set();
 
@@ -82,7 +76,7 @@ export default class Script extends Module {
   }
 
   // 合并 scripts
-  // 替换 require(path) 为 __weapper_module__($id)
+  // 替换 require(path) 为 __WEAPPER_MODULES__($id)
   // 输出压缩代码
   static async contact(scripts: Array<Script>): string {
     return await contact(scripts);
@@ -109,7 +103,7 @@ function compile(onSuccess, onError) {
   if (/^\./.test(path.relative(PROJ_DIR, this.$source))) {
     options.configFile = `${__dirname}/empty.babel.config.js`;
   } else {
-    options.plugins.push(PluginSelect);
+    options.plugins.unshift(PluginSelect);
   }
 
   babel.transformFile(this.$source, options, async (error, result)=> {
@@ -217,52 +211,30 @@ function transformRequire(onSuccess, onError) {
 }
 
 async function contact(scripts) {
-
-  const file =
-    babel.parseSync(`
-      var __weaper_modules__ = {};
-      function define(id, factory) {
-        __weaper_modules__[id] = {factory: factory};
-      }
-      function __weapper_require__(id) {
-        if (!__weaper_modules__[id]) throw new Error("Module not found with id: " + id);
-        const module = __weaper_modules__[id];
-        if (module.exports) return module.exports;
-        module.exports = {};
-        module.factory(module, module.exports);
-        delete module.factory;
-        return module.exports;
-      }
-      module.exports = __weapper_require__;
-      `
-    );
-
-  for (let script of scripts) {
-    script.comments = [];
-    file.program.body.push(bt.expressionStatement(bt.callExpression(
-      bt.identifier('define'),[
-      bt.numericLiteral(script.$id),
-      bt.functionExpression(
-        bt.identifier(''),
-        [bt.identifier('module'), bt.identifier('exports')],
-        bt.blockStatement(script.ast.program.body)
-      )
-    ])));
-  }
-  file.comments = [];
+  const __WEAPPER_MODULES__ = bt.identifier('__WEAPPER_MODULES__');
+  const __WEAPPER_REQUIRE__ = bt.identifier('__WEAPPER_REQUIRE__');
+  const ast = wrapper(scripts);
+  const file = bt.program([ast]);
   const result = await new Promise(minify);
+  
   return result.code;
 
   function minify(onSuccess, onError) {
-    babel.transformFromAst(file, '', {
-      presets:['babel-preset-minify'],
+    const options = {
+      presets: ['babel-preset-minify'],
       plugins: [RequireTransformer],
       ast: false, code: true, 
       configFile: path.resolve(__dirname, 'empty.babel.config.js')
-    }, (error, result)=> {
+    };
+    babel.transformFromAst(file, '', options, (error, result)=> {
       if (error) return onError(error);
-
       onSuccess(result);
+
+      // options.presets = ['babel-preset-minify']
+      // babel.transform(result.code, options, (error, result)=> {
+      //   if (error) return onError(error);
+      //   onSuccess(result);
+      // });
     });
   }
 
@@ -272,16 +244,95 @@ async function contact(scripts) {
     }
   }
 
-  function CallExpression($path) {
-    const node = $path.node;
+  function CallExpression(path) {
+    const node = path.node;
     if (node.callee.name != 'require') return;
 
     const source = node.arguments[0].value;
     const script = depensGraph.get(source);
-    node.callee.name = '__weapper_require__';
+    node.callee = __WEAPPER_REQUIRE__;
     node.arguments[0].value = script.$id;
   }
 
+  function wrapper(scripts = []) {
+    // return parser.parseExpression("!function(){}()")
 
+    const modules = __WEAPPER_MODULES__;
+    const require = __WEAPPER_REQUIRE__;
+    const define = bt.identifier('define');
+    const id = bt.identifier('id');
+    const exports = bt.identifier('exports');
+    const error = bt.identifier('error');
+
+    const body = [
+      // const modules = {};
+      bt.variableDeclaration('var', [bt.variableDeclarator(
+        modules, bt.objectExpression([])
+      )]),
+      // function require(id) {}
+      function() {
+        const factory = bt.identifier('factory');
+        const module = bt.identifier('module');
+        const isLoaded = bt.identifier('isLoaded');
+        
+        return bt.functionDeclaration(require, [id], bt.blockStatement([
+          // const module = modules[id];
+          bt.variableDeclaration('var', [bt.variableDeclarator(
+            module, bt.memberExpression(modules, id, true)
+          )]),
+          bt.ifStatement(bt.unaryExpression('!', bt.memberExpression(module, isLoaded)), bt.blockStatement([
+            bt.tryStatement(bt.blockStatement([
+              bt.expressionStatement(bt.assignmentExpression('=', bt.memberExpression(module, isLoaded), bt.booleanLiteral(true))),
+              bt.expressionStatement(bt.assignmentExpression('=', 
+                bt.memberExpression(module, exports), bt.objectExpression([])
+              )),
+              bt.expressionStatement(bt.callExpression(bt.memberExpression(module, bt.identifier('factory')), [module, bt.memberExpression(module, exports)])),
+              bt.expressionStatement(bt.unaryExpression('delete', bt.memberExpression(module, bt.identifier('factory'))))
+            ]), bt.catchClause(error, bt.blockStatement([
+              bt.expressionStatement(bt.callExpression(
+                bt.memberExpression(bt.identifier('console'), bt.identifier('error')),
+                [error]
+              ))
+            ])))
+          ])),
+          bt.returnStatement(bt.memberExpression(module, exports))
+        ]))
+      }(),
+      // function define(id, factory) { modules[id] = {factory: factory};}
+      function(){
+        const factory = bt.identifier('factory');
+        return bt.functionDeclaration(define, [id, factory], bt.blockStatement([
+          bt.expressionStatement(bt.assignmentExpression('=', bt.memberExpression(
+            modules, id, true
+          ), bt.objectExpression([bt.objectProperty(bt.identifier('factory'), factory)])))
+        ]))
+      }(),
+    ];
+
+    for (let script of scripts) {
+      const wrapped = bt.expressionStatement(bt.callExpression(
+        define,[
+        bt.numericLiteral(script.$id),
+        bt.functionExpression(
+          bt.identifier(''), [bt.identifier('module'), bt.identifier('exports')],
+          bt.blockStatement(script.ast.program.body)
+        )
+      ]));
+      body.push(wrapped);
+    }
+
+    body.push(
+      // module.exports = require;
+      bt.expressionStatement(bt.assignmentExpression('=', bt.memberExpression(
+        bt.identifier('module'), bt.identifier('exports')
+      ),require))
+    )
+
+    const main = bt.unaryExpression('!', bt.callExpression(
+      bt.functionExpression(bt.identifier(''),[],bt.blockStatement(body)),
+      []
+    ));
+    return bt.expressionStatement(main);
+  }
 }
 
